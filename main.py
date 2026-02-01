@@ -18,6 +18,7 @@ RETRY_SLEEP = 2      # Sleep before retrying section open
 VERIFICATION_PASS = True  # Whether to run verification round
 VERIFICATION_DELAY = 2    # Delay before starting verification
 FINAL_ASSESSMENT_PATTERN = "Final Assessment"  # Pattern to skip sections
+MAX_SECTION_RETRIES = 3   # Max times to retry a section if the green tick doesn't appear
 
 # --- CONNECT TO CHROME ---
 chrome_options = Options()
@@ -75,7 +76,14 @@ def watch_video():
         """, video)
         
         time.sleep(SECTION_SLEEP) 
-        
+        # Re-find the video element to avoid stale element references before the second jump
+        try:
+            video = WebDriverWait(driver, WAIT_TIMEOUT).until(
+                EC.presence_of_element_located((By.TAG_NAME, "video"))
+            )
+        except Exception:
+            pass
+
         driver.execute_script(f"""
             var v = arguments[0];
             v.currentTime = Math.max(0, v.duration - 0.5);
@@ -131,11 +139,27 @@ def run_course_loop(is_verification_round=False):
     print(f"Found {len(sections)} Course Sections.")
 
     for i in range(len(sections)):
-        try:
-            # Refresh reference
+        section_attempt = 0
+        # Retry loop for the current section (allows refresh + re-check)
+        while section_attempt < MAX_SECTION_RETRIES:
+            # Refresh reference (important after a refresh)
             sections = driver.find_elements(By.CLASS_NAME, "tocSubTitle")
+            # If the sections list changed and i is out of range, break out
+            if i >= len(sections):
+                print(f"--- Section {i+1}: No longer present after refresh. Skipping. ---")
+                break
+
             current_section = sections[i]
             section_title = current_section.text
+
+            # --- PRE-CHECK: SKIP FULL SECTION IF COMPLETE ---
+            try:
+                if len(current_section.find_elements(By.CLASS_NAME, "icon-Tick")) > 0:
+                    if not is_verification_round:
+                        print(f"--- Section {i+1}: Already Fully Complete. Skipping. ---")
+                    break  # move to next section
+            except:
+                pass
 
             # --- SKIP FULL SECTION IF COMPLETE ---
             # If the header has a green tick, we don't need to open it.
@@ -144,13 +168,13 @@ def run_course_loop(is_verification_round=False):
                     # Only print this in the main pass to keep logs clean
                     if not is_verification_round:
                         print(f"--- Section {i+1}: Already Fully Complete. Skipping. ---")
-                    continue
+                    break
             except: pass
 
             # --- SKIP FINAL ASSESSMENT ---
             if FINAL_ASSESSMENT_PATTERN in section_title:
                 print(f"--- Section {i+1}: Skipped (Final Assessment/Quiz) ---")
-                continue
+                break
 
             # --- OPEN SECTION ---
             try:
@@ -224,22 +248,44 @@ def run_course_loop(is_verification_round=False):
             # --- CLOSE SECTION ---
             try:
                 sections = driver.find_elements(By.CLASS_NAME, "tocSubTitle")
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", sections[i])
-                sections[i].click()
-                time.sleep(CLICK_SLEEP)
+                if i < len(sections):
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", sections[i])
+                    sections[i].click()
+                    time.sleep(CLICK_SLEEP)
             except: pass
 
-        except Exception as e:
-            print(f"  [Section Error]: {e}")
-            continue
+            # --- POST-CHECK: Verify Section Tick ---
+            try:
+                sections = driver.find_elements(By.CLASS_NAME, "tocSubTitle")
+                if i < len(sections) and len(sections[i].find_elements(By.CLASS_NAME, "icon-Tick")) > 0:
+                    # Success for this section
+                    break
+                else:
+                    print("  [Warn] Section tick missing. Reloading page and retrying videos...")
+                    driver.refresh()
+                    time.sleep(5)
+                    section_attempt += 1
+                    continue
+            except Exception as e:
+                print(f"  [Section Error]: {e}")
+                section_attempt += 1
+                continue
+
+        # End retry loop for this section
 
     return video_count
 
 # --- EXECUTION START ---
 try:
-    videos_watched = run_course_loop(is_verification_round=False)
+    run_course_loop(is_verification_round=False)
+
+    # Always run at least one Verification Round
+    print("\n\n>>> MAIN PASS COMPLETE. STARTING FIRST VERIFICATION ROUND <<<")
+    time.sleep(VERIFICATION_DELAY)
+    videos_watched = run_course_loop(is_verification_round=True)
+
     while videos_watched > 0:
-        print("\n\n>>> RUN COMPLETE. STARTING NEXT VERIFICATION ROUND <<<")
+        print("\n\n>>> PREVIOUS ROUND INCOMPLETE. STARTING ANOTHER VERIFICATION ROUND <<<")
         time.sleep(VERIFICATION_DELAY)
         videos_watched = run_course_loop(is_verification_round=True)
 
