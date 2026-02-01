@@ -9,8 +9,6 @@ import time
 # --- CONFIGURATION ---
 DEBUG_PORT = "127.0.0.1:9222"
 WAIT_TIMEOUT = 30   # Max time to wait for video to load
-PLAY_BUFFER = 5   # Seconds before the end to skip to
-PLAYBACK_RATE = 2.0  # Video playback speed multiplier
 CLICK_SLEEP = 0.5    # Sleep after clicking elements
 LOAD_SLEEP = 4       # Sleep after clicking topic to load
 SECTION_SLEEP = 2    # Sleep after expanding section
@@ -65,52 +63,9 @@ def watch_video():
             lambda d: d.execute_script("return arguments[0].readyState >= 1;", video)
         )
 
-        # Execute double jump
-        print(f"    [Action] Executing Double Jump...")
-        driver.execute_script(f"""
-            var v = arguments[0];
-            v.muted = true;
-            v.playbackRate = {PLAYBACK_RATE};         
-            v.currentTime = Math.max(0, v.duration - {PLAY_BUFFER}); 
-            v.play();
-        """, video)
-        
-        time.sleep(SECTION_SLEEP) 
-        # Re-find the video element to avoid stale element references before the second jump
-        try:
-            video = WebDriverWait(driver, WAIT_TIMEOUT).until(
-                EC.presence_of_element_located((By.TAG_NAME, "video"))
-            )
-        except Exception:
-            pass
-
-        driver.execute_script(f"""
-            var v = arguments[0];
-            v.currentTime = Math.max(0, v.duration - 0.5);
-            v.play();
-        """, video)
-
-        # Verify completion
-        start_wait = time.time()
-        while True:
-            try:
-                is_ended = driver.execute_script("""
-                    var v = arguments[0];
-                    return v.ended || (v.currentTime >= v.duration - 0.1);
-                """, video)
-                
-                if is_ended:
-                    print("    [Success] Video finished.")
-                    break
-            except:
-                break
-
-            if time.time() - start_wait > 15:
-                print("    [Warning] Timeout. Forcing 'ended' event...")
-                driver.execute_script("arguments[0].dispatchEvent(new Event('ended'));", video)
-                break
-                
-            time.sleep(1)
+        # Force 'ended' event immediately
+        driver.execute_script("arguments[0].dispatchEvent(new Event('ended'));", video)
+        print("    [Success] Video finished.")
 
         time.sleep(2) 
         return True
@@ -152,7 +107,7 @@ def run_course_loop(is_verification_round=False):
             current_section = sections[i]
             section_title = current_section.text
 
-            # --- PRE-CHECK: SKIP FULL SECTION IF COMPLETE ---
+            # --- SKIP FULL SECTION IF COMPLETE ---
             try:
                 if len(current_section.find_elements(By.CLASS_NAME, "icon-Tick")) > 0:
                     if not is_verification_round:
@@ -160,16 +115,6 @@ def run_course_loop(is_verification_round=False):
                     break  # move to next section
             except:
                 pass
-
-            # --- SKIP FULL SECTION IF COMPLETE ---
-            # If the header has a green tick, we don't need to open it.
-            try:
-                if len(current_section.find_elements(By.CLASS_NAME, "icon-Tick")) > 0:
-                    # Only print this in the main pass to keep logs clean
-                    if not is_verification_round:
-                        print(f"--- Section {i+1}: Already Fully Complete. Skipping. ---")
-                    break
-            except: pass
 
             # --- SKIP FINAL ASSESSMENT ---
             if FINAL_ASSESSMENT_PATTERN in section_title:
