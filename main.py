@@ -8,7 +8,7 @@ import time
 # --- CONFIGURATION ---
 DEBUG_PORT = "127.0.0.1:9222"
 WAIT_TIMEOUT = 30   # Max time to wait for video to load
-PLAY_BUFFER = 2.5   # Seconds before the end to skip to (gives it time to register)
+PLAY_BUFFER = 2.5   # Seconds before the end to skip to
 
 # --- CONNECT TO CHROME ---
 chrome_options = Options()
@@ -62,34 +62,30 @@ def watch_video():
         print(f"    [Action] Skipping to -{PLAY_BUFFER}s from end...")
         driver.execute_script(f"""
             var v = arguments[0];
-            v.muted = true;               // Mute to allow autoplay policies
+            v.muted = true;               
             v.currentTime = v.duration - {PLAY_BUFFER}; 
-            v.play();                     // Force play command
+            v.play();                     
         """, video)
 
-        # 6. VERIFY COMPLETION (The Fix)
+        # 6. VERIFY COMPLETION
         # We loop here checking 'video.ended' until it returns True.
-        # This guarantees we get the Green Tick.
         start_wait = time.time()
         is_ended = False
         
         while not is_ended:
-            # Check if video has finished
             is_ended = driver.execute_script("return arguments[0].ended;", video)
             
             if is_ended:
                 print("    [Success] Video reporting 'Ended' state.")
                 break
             
-            # Timeout safety (don't get stuck forever)
-            if time.time() - start_wait > 15:
+            if time.time() - start_wait > 20:
                 print("    [Warning] Video timed out waiting for 'ended' signal.")
                 break
                 
-            time.sleep(1) # Check every second
+            time.sleep(1)
 
-        # Extra safety pause for server sync
-        time.sleep(2)
+        time.sleep(2) # Extra safety pause
 
     except Exception as e:
         print(f"    [Error] Video handling failed: {e}")
@@ -121,26 +117,36 @@ try:
         xpath_topics = f"(//mat-card-subtitle)[{i+1}]/following-sibling::div//div[contains(@class, 'modTitle')]"
         topics = driver.find_elements(By.XPATH, xpath_topics)
         
-        print(f"\n--- Section {i+1}: Processing {len(topics)} Topics ---")
+        print(f"\n--- Section {i+1}: Found {len(topics)} Topics ---")
         
         for j in range(len(topics)):
             # Refresh topic references
             topics = driver.find_elements(By.XPATH, xpath_topics)
             current_topic = topics[j]
+            
+            # --- NEW: CHECK IF ALREADY COMPLETED ---
+            try:
+                # We look at the parent container of the current topic link
+                # to see if it contains the 'icon-Tick' element
+                parent_container = current_topic.find_element(By.XPATH, "./..")
+                ticks = parent_container.find_elements(By.CLASS_NAME, "icon-Tick")
+                
+                if len(ticks) > 0:
+                    print(f"  > Topic {j+1}: Already Completed (Green Tick). Skipping.")
+                    continue # Skip to next topic immediately
+            except:
+                pass # If logic fails, just proceed to click it to be safe
 
-            # Scroll & Click
+            # If we are here, the topic is incomplete. Proceed!
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", current_topic)
             time.sleep(0.5)
             current_topic.click()
             
-            # Wait for page load (prevents connection errors)
-            print(f"  > Topic {j+1}: Page loading...")
-            time.sleep(4) 
+            print(f"  > Topic {j+1}: Opening lesson...")
+            time.sleep(4) # Wait for page load
 
-            # Process Video
             watch_video()
             
-            # Pause before next topic
             time.sleep(1)
 
     print("\n--- COURSE COMPLETED ---")
