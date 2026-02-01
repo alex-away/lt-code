@@ -1,5 +1,6 @@
 # LT Course Video Automation Script
 
+
 This Python script automates the completion of online course videos using Selenium WebDriver. It connects to an existing Chrome browser instance with remote debugging enabled and intelligently navigates through course sections to watch videos, marking them as completed by skipping to near the end of each video.
 
 ## Table of Contents
@@ -105,6 +106,7 @@ The script performs the following automated tasks:
 2. **Navigate to the Course Page**:
    - In the opened Chrome window, go to your online course page.
    - Ensure you're logged in and on the course content page.
+    ![LT Course Video Automation Script](image.png)
 
 3. **Run the Script**:
    ```bash
