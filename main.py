@@ -233,6 +233,9 @@ try:
 
     print("\n--- ALL DONE ---")
 
+    # Close the browser after completion
+    driver.quit()
+
 except KeyboardInterrupt:
     print("\n[Stopped] User stopped script.")
 except Exception as e:
