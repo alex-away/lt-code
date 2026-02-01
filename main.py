@@ -121,13 +121,23 @@ def run_course_loop(is_verification_round=False):
                 print(f"--- Section {i+1}: Skipped (Final Assessment/Quiz) ---")
                 break
 
-            # --- OPEN SECTION ---
+            # --- OPEN (OR REFRESH) SECTION ---
             try:
                 arrow = current_section.find_element(By.CSS_SELECTOR, ".icon-DownArrow")
-                if "expand_more" in arrow.get_attribute("class"):
-                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", current_section)
+                is_closed = "expand_more" in arrow.get_attribute("class")
+
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", current_section)
+                
+                if is_closed:
+                    # It is closed -> Open it
                     current_section.click()
-                    time.sleep(SECTION_SLEEP) 
+                else:
+                    # It is already open -> Close it and Re-open to refresh the list
+                    current_section.click()
+                    time.sleep(CLICK_SLEEP)
+                    current_section.click()
+                    
+                time.sleep(SECTION_SLEEP) 
             except: pass 
 
             # Find Topics
