@@ -53,7 +53,6 @@ def watch_video():
         print("    [Status] Video found. Checking network/buffering...")
 
         # 4. WAIT FOR METADATA (Duration)
-        # We poll the 'readyState' to ensure we don't skip on a loading screen.
         WebDriverWait(driver, WAIT_TIMEOUT).until(
             lambda d: d.execute_script("return arguments[0].readyState >= 1;", video)
         )
@@ -68,7 +67,6 @@ def watch_video():
         """, video)
 
         # 6. VERIFY COMPLETION
-        # We loop here checking 'video.ended' until it returns True.
         start_wait = time.time()
         is_ended = False
         
@@ -105,18 +103,45 @@ try:
         # Refresh section references
         sections = driver.find_elements(By.CLASS_NAME, "tocSubTitle")
         
-        # Open section if collapsed
+        # --- INITIAL EXPANSION CHECK ---
         try:
             arrow = sections[i].find_element(By.CSS_SELECTOR, ".icon-DownArrow")
+            # If the arrow class contains 'expand_more', it means it is closed.
             if "expand_more" in arrow.get_attribute("class"):
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", sections[i])
                 sections[i].click()
-                time.sleep(1)
-        except: pass
+                time.sleep(2) # Wait for animation
+        except:
+            pass 
 
         # Find Topics within this section
         xpath_topics = f"(//mat-card-subtitle)[{i+1}]/following-sibling::div//div[contains(@class, 'modTitle')]"
         topics = driver.find_elements(By.XPATH, xpath_topics)
         
+        # --- RETRY LOGIC FOR 0 TOPICS ---
+        if len(topics) == 0:
+            print("  [Retry] Found 0 topics. Waiting to ensure section is open...")
+            time.sleep(3) # Wait for lazy load
+            
+            # Re-check expansion arrow
+            try:
+                sections = driver.find_elements(By.CLASS_NAME, "tocSubTitle") # Refresh ref
+                arrow = sections[i].find_element(By.CSS_SELECTOR, ".icon-DownArrow")
+                
+                # Double check if it closed itself or didn't open
+                if "expand_more" in arrow.get_attribute("class"):
+                    print("  [Retry] Section appears closed. Clicking to expand...")
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", sections[i])
+                    sections[i].click()
+                    time.sleep(3)
+            except:
+                pass
+            
+            # Search again
+            topics = driver.find_elements(By.XPATH, xpath_topics)
+            print(f"  [Retry Result] Found {len(topics)} topics.")
+
+
         print(f"\n--- Section {i+1}: Found {len(topics)} Topics ---")
         
         for j in range(len(topics)):
@@ -124,20 +149,18 @@ try:
             topics = driver.find_elements(By.XPATH, xpath_topics)
             current_topic = topics[j]
             
-            # --- NEW: CHECK IF ALREADY COMPLETED ---
+            # --- CHECK IF ALREADY COMPLETED ---
             try:
-                # We look at the parent container of the current topic link
-                # to see if it contains the 'icon-Tick' element
                 parent_container = current_topic.find_element(By.XPATH, "./..")
                 ticks = parent_container.find_elements(By.CLASS_NAME, "icon-Tick")
                 
                 if len(ticks) > 0:
                     print(f"  > Topic {j+1}: Already Completed (Green Tick). Skipping.")
-                    continue # Skip to next topic immediately
+                    continue 
             except:
-                pass # If logic fails, just proceed to click it to be safe
+                pass 
 
-            # If we are here, the topic is incomplete. Proceed!
+            # Proceed to click
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", current_topic)
             time.sleep(0.5)
             current_topic.click()
