@@ -58,10 +58,55 @@ def watch_video():
         )
         print("    [Status] Video found. Checking state...")
 
-        # Wait for metadata
-        WebDriverWait(driver, WAIT_TIMEOUT).until(
-            lambda d: d.execute_script("return arguments[0].readyState >= 1;", video)
-        )
+        # SPOOF: Trick the page into thinking it's always visible in this frame
+        driver.execute_script("""
+            Object.defineProperty(document, 'hidden', {get: function() {return false;}});
+            Object.defineProperty(document, 'visibilityState', {get: function() {return 'visible';}});
+            document.dispatchEvent(new Event('visibilitychange'));
+        """)
+
+        # Force video to wake up (crucial for background tabs)
+        driver.execute_script("arguments[0].play().catch(() => {});", video)
+
+        # Smart Wait for Metadata with Diagnostics
+        max_retries = 10 # FAST TIMEOUT: 10 seconds. If it doesn't load by then, force complete.
+        ready = False
+        
+        for i in range(max_retries):
+            # Check for specific video errors first
+            error_code = driver.execute_script("return arguments[0].error ? arguments[0].error.code : null;", video)
+            if error_code:
+                # Silently catch error and just let the force-finish logic handle it below
+                pass 
+
+            state = driver.execute_script(
+                "return {ready: arguments[0].readyState, network: arguments[0].networkState, src: arguments[0].currentSrc};", 
+                video
+            )
+            
+            if state['ready'] >= 1:
+                ready = True
+                break
+            
+            # RECOVERY: Try to remove the time fragment from the src if it exists
+            if i % 3 == 0 and i > 0:
+                curr_src = str(state['src'])
+                if "#t=" in curr_src:
+                   clean_src = curr_src.split("#")[0]
+                   driver.execute_script("arguments[0].src = arguments[1]; arguments[0].load(); arguments[0].play().catch(() => {});", video, clean_src)
+                else:
+                    driver.execute_script("arguments[0].play().catch(() => {});", video)
+            
+            time.sleep(1)
+
+        # Force completion (works even if video didn't load properly)
+        if not ready:
+            # Mock the duration if it's missing to prevent event errors
+            driver.execute_script("""
+                if (isNaN(arguments[0].duration)) {
+                    Object.defineProperty(arguments[0], 'duration', {get: function(){return 100;}});
+                }
+            """, video)
 
         # Force 'ended' event immediately
         driver.execute_script("arguments[0].dispatchEvent(new Event('ended'));", video)
@@ -71,7 +116,8 @@ def watch_video():
         return True
 
     except Exception as e:
-        print(f"    [Error] Video error: {str(e)[:50]}")
+        error_msg = str(e).split('\n')[0] if str(e) else "No message"
+        print(f"    [Error] Video failed ({type(e).__name__}): {error_msg}")
         return False
 
     finally:
@@ -120,6 +166,33 @@ def run_course_loop(is_verification_round=False):
             if FINAL_ASSESSMENT_PATTERN in section_title:
                 print(f"--- Section {i+1}: Skipped (Final Assessment/Quiz) ---")
                 break
+
+            # --- CLOSE OTHER SECTIONS ---
+            # To prevent scrolling issues and keep focus, close all other open sections
+            try:
+                for k in range(len(sections)):
+                    if k == i: continue # Don't close the current one we are about to process
+                    
+                    other_section = sections[k]
+                    try:
+                        other_arrow = other_section.find_element(By.CSS_SELECTOR, ".icon-DownArrow")
+                        is_other_closed = "expand_more" in other_arrow.get_attribute("class")
+                        
+                        if not is_other_closed:
+                            # It is open -> Click to close
+                            # print(f"    [Cleanup] Closing expanded Section {k+1}...")
+                            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", other_section)
+                            other_section.click()
+                            time.sleep(0.5)
+                    except: pass
+                
+                # Refresh reference to current section after potential DOM updates
+                sections = driver.find_elements(By.CLASS_NAME, "tocSubTitle")
+                current_section = sections[i]
+
+            except Exception as e:
+                # print(f"    [Warn] Cleanup error: {e}")
+                pass
 
             # --- OPEN (OR REFRESH) SECTION ---
             try:

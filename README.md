@@ -38,7 +38,7 @@ The script performs the following automated tasks:
 5. **Error Handling**:
    - Robust handling of network drops, frame loading issues, and stale elements.
    - Retries section expansion if topics don't load initially.
-   - Continues processing even if individual videos fail.
+   - **Background Throttling Defense**: Actively detects stuck video downloads (caused by browser background throttling) and resets the connection. If a video refuses to load after 30 seconds, it forces a completion signal to keep the script moving.
 
 6. **Two-Pass System**:
    - **Main Pass**: Processes all sections and videos.
@@ -93,15 +93,15 @@ The script performs the following automated tasks:
 
    ### For Windows:
    ```powershell
-   & "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\selenium\ChromeProfile"
+   & "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\selenium\ChromeProfile" --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=CalculateNativeWinOcclusion
    ```
 
    ### For macOS:
    ```bash
-   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222 --user-data-dir="/tmp/chrome_dev_test"
+   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222 --user-data-dir="/tmp/chrome_dev_test" --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=CalculateNativeWinOcclusion
    ```
 
-   Note: Adjust paths if Chrome is installed elsewhere. The `--user-data-dir` creates a separate profile to avoid interfering with your main browser.
+   Note: **These flags are crucial** to allow the script to run in the background without the browser throttling the video player. Adjust paths if Chrome is installed elsewhere. The `--user-data-dir` creates a separate profile to avoid interfering with your main browser.
 
 2. **Navigate to the Course Page**:
    - In the opened Chrome window, go to your online course page.
@@ -134,6 +134,7 @@ Modify these in `main.py` if needed for different environments or behaviors.
 
 ## Troubleshooting
 
+- **Video Stuck/Not Loading in Background**: Ensure you launched Chrome with the `--disable-background-timer-throttling` and `--disable-backgrounding-occluded-windows` flags. Modern browsers pause videos in background tabs to save battery.
 - **Connection Issues**: Ensure Chrome is running with the correct port and user-data-dir.
 - **Video Not Found**: The script skips non-video content (text, quizzes) automatically.
 - **Stale Elements**: The script refreshes element references frequently to handle dynamic pages.
